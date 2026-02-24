@@ -1,1 +1,1437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>FFT Visualizer — DIT & DIF</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #04060d;
+  --bg2: #080d1a;
+  --bg3: #0e1525;
+  --cyan: #00e5ff;
+  --mag: #ff2d87;
+  --yellow: #ffe600;
+  --green: #00ff88;
+  --orange: #ff7a00;
+  --purple: #b060ff;
+  --dim: #1e3050;
+  --dim2: #2a4060;
+  --text: #c8e0ff;
+  --text2: #607090;
+  --glow-cyan: 0 0 12px #00e5ff88, 0 0 28px #00e5ff33;
+  --glow-mag: 0 0 12px #ff2d8788, 0 0 28px #ff2d8733;
+  --glow-y: 0 0 12px #ffe60088, 0 0 28px #ffe60033;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Scanline overlay */
+body::before {
+  content:'';
+  position:fixed; inset:0; pointer-events:none; z-index:999;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+}
+
+/* Grid background */
+body::after {
+  content:'';
+  position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(var(--dim) 1px, transparent 1px), linear-gradient(90deg, var(--dim) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.15;
+}
+
+header {
+  position: relative; z-index:10;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--dim2);
+  background: linear-gradient(180deg, #0a1020 0%, transparent 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.logo {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 900;
+  font-size: clamp(16px, 4vw, 22px);
+  letter-spacing: 2px;
+  background: linear-gradient(135deg, var(--cyan), var(--mag));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
+  filter: drop-shadow(0 0 8px var(--cyan));
+}
+
+.logo span { color: var(--yellow); -webkit-text-fill-color: var(--yellow); }
+
+.method-toggle {
+  display: flex;
+  background: var(--bg3);
+  border: 1px solid var(--dim2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.method-btn {
+  padding: 7px 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text2);
+  transition: all 0.25s;
+}
+.method-btn.active[data-m="DIT"] {
+  background: var(--cyan);
+  color: #000;
+  text-shadow: none;
+  box-shadow: var(--glow-cyan);
+}
+.method-btn.active[data-m="DIF"] {
+  background: var(--mag);
+  color: #fff;
+  box-shadow: var(--glow-mag);
+}
+
+main { position:relative; z-index:1; padding: 14px; display:flex; flex-direction:column; gap:14px; max-width:900px; margin:0 auto; }
+
+/* Card */
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--dim2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  position: relative;
+  overflow: hidden;
+}
+.card::before {
+  content:'';
+  position:absolute; top:0; left:0; right:0; height:1px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  opacity: 0.4;
+}
+
+.section-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text2);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* Signal selector */
+.signal-btns { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.sig-btn {
+  padding: 5px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--dim2);
+  border-radius: 20px;
+  color: var(--text2);
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.sig-btn.active, .sig-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0,229,255,0.08);
+}
+
+/* Signal canvas */
+#signalCanvas {
+  width: 100%;
+  height: 80px;
+  border-radius: 6px;
+  background: #020408;
+}
+
+/* Butterfly diagram */
+.diagram-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+}
+#butterflySVG {
+  display: block;
+  min-width: 560px;
+  width: 100%;
+  height: 320px;
+}
+
+/* Info bar */
+.info-bar {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.info-badge {
+  background: var(--bg3);
+  border: 1px solid var(--dim2);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text2);
+  flex: 1;
+  min-width: 120px;
+}
+.info-badge .val { color: var(--yellow); font-size: 13px; }
+.info-badge.highlight { border-color: var(--yellow); background: rgba(255,230,0,0.05); }
+
+/* Op description */
+#opDesc {
+  font-size: 12px;
+  color: var(--text2);
+  padding: 8px 12px;
+  background: var(--bg3);
+  border-radius: 6px;
+  border-left: 3px solid var(--yellow);
+  min-height: 36px;
+  transition: all 0.3s;
+}
+
+/* Controls */
+.controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+
+.ctrl-btn {
+  padding: 9px 20px;
+  background: var(--bg3);
+  border: 1px solid var(--dim2);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.ctrl-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.ctrl-btn.primary {
+  background: rgba(0,229,255,0.12);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: var(--glow-cyan);
+}
+.ctrl-btn.primary:hover { background: rgba(0,229,255,0.22); }
+.ctrl-btn:disabled { opacity:0.35; cursor:not-allowed; }
+
+.speed-wrap {
+  display:flex; align-items:center; gap:8px; flex:1; min-width:160px;
+}
+.speed-wrap label { font-size:11px; color:var(--text2); white-space:nowrap; }
+#speedRange {
+  flex:1;
+  -webkit-appearance:none; appearance:none;
+  height:4px; background:var(--dim2); border-radius:2px; cursor:pointer;
+}
+#speedRange::-webkit-slider-thumb {
+  -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+  background:var(--cyan); border:2px solid #000; box-shadow: var(--glow-cyan);
+}
+
+/* Output spectrum */
+#spectrumCanvas, #phaseCanvas {
+  width:100%; height:100px; border-radius:6px; background:#020408;
+}
+
+/* Progress */
+.progress-row { display:flex; gap:4px; margin-top:6px; }
+.stage-indicator {
+  flex:1; height:4px; background:var(--dim); border-radius:2px;
+  transition: background 0.3s;
+}
+.stage-indicator.done { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.stage-indicator.active { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); animation: pulse 0.8s infinite; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+/* Node value popup */
+.node-tooltip {
+  position:fixed;
+  background: var(--bg3);
+  border:1px solid var(--yellow);
+  border-radius:6px;
+  padding:6px 10px;
+  font-size:11px;
+  color: var(--yellow);
+  pointer-events:none;
+  z-index:100;
+  display:none;
+  white-space:nowrap;
+}
+
+/* DIF/DIT description panel */
+.algo-desc {
+  display:flex; gap:10px; flex-wrap:wrap;
+}
+.algo-step {
+  flex:1; min-width:140px;
+  background:var(--bg3);
+  border:1px solid var(--dim2);
+  border-radius:6px;
+  padding:8px 10px;
+  font-size:11px;
+  color:var(--text2);
+}
+.algo-step .step-num {
+  font-family:'Orbitron',sans-serif;
+  font-size:16px;
+  font-weight:700;
+  margin-bottom:4px;
+}
+.algo-step.active-step { border-color:var(--yellow); }
+.algo-step.active-step .step-num { color:var(--yellow); }
+.algo-step.done-step .step-num { color:var(--green); }
+
+/* Custom input grid */
+.custom-input-row {
+  display: flex;
+  gap: 5px;
+  margin-top: 10px;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+}
+.sample-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.sample-cell label {
+  font-size: 9px;
+  color: var(--text2);
+  font-family: 'Share Tech Mono', monospace;
+  white-space: nowrap;
+}
+.sample-cell input[type=number] {
+  width: 100%;
+  background: #060c18;
+  border: 1px solid var(--dim2);
+  border-radius: 5px;
+  color: #ffffff;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  text-align: center;
+  padding: 5px 2px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  -moz-appearance: textfield;
+}
+.sample-cell input[type=number]::-webkit-inner-spin-button,
+.sample-cell input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+.sample-cell input[type=number]:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(0,229,255,0.35);
+  background: #0a1828;
+}
+.sample-cell input[type=number].user-edited {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+.apply-btn {
+  padding: 7px 14px;
+  background: rgba(0,229,255,0.12);
+  border: 1px solid var(--cyan);
+  border-radius: 6px;
+  color: var(--cyan);
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: all 0.2s;
+  box-shadow: var(--glow-cyan);
+  flex-shrink: 0;
+}
+.apply-btn:hover { background: rgba(0,229,255,0.22); }
+
+@media (max-width: 480px) {
+  header { padding:12px 14px 10px; }
+  main { padding:10px; gap:10px; }
+  .card { padding:10px; }
+  .sample-cell input[type=number] { font-size:11px; padding:4px 1px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">FFT<span>⚡</span>VIZ</div>
+  <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+    <div class="method-toggle">
+      <button class="method-btn active" data-m="DIT" onclick="switchMethod('DIT')">DIT</button>
+      <button class="method-btn" data-m="DIF" onclick="switchMethod('DIF')">DIF</button>
+    </div>
+    <div style="font-size:10px;color:var(--text2);text-align:right" id="methodDesc">Decimation in Time</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Signal Input -->
+  <div class="card">
+    <div class="section-title">⚙ Input Signal — N = 8</div>
+    <div class="signal-btns">
+      <button class="sig-btn active" data-sig="sine" onclick="setSig(this)">Sine</button>
+      <button class="sig-btn" data-sig="square" onclick="setSig(this)">Square</button>
+      <button class="sig-btn" data-sig="impulse" onclick="setSig(this)">Impulse</button>
+      <button class="sig-btn" data-sig="chirp" onclick="setSig(this)">Chirp</button>
+      <button class="sig-btn" data-sig="random" onclick="setSig(this)">Random</button>
+    </div>
+    <!-- 8 sample inputs -->
+    <div class="custom-input-row" id="sampleInputRow">
+      <div class="sample-cell"><label>x[0]</label><input type="number" id="s0" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[1]</label><input type="number" id="s1" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[2]</label><input type="number" id="s2" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[3]</label><input type="number" id="s3" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[4]</label><input type="number" id="s4" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[5]</label><input type="number" id="s5" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[6]</label><input type="number" id="s6" step="any" value="0"></div>
+      <div class="sample-cell"><label>x[7]</label><input type="number" id="s7" step="any" value="0"></div>
+      <button class="apply-btn" onclick="applyCustomSignal()" title="Apply custom values">▶ USE</button>
+      <button class="apply-btn" onclick="clearSamples()" title="Set all samples to zero" style="background:rgba(255,45,135,0.10);border-color:var(--mag);color:var(--mag);box-shadow:var(--glow-mag)">✕ ZERO</button>
+    </div>
+    <canvas id="signalCanvas"></canvas>
+  </div>
+
+  <!-- Algorithm Steps -->
+  <div class="card">
+    <div class="section-title" id="algoTitle">✦ DIT ALGORITHM STEPS</div>
+    <div class="algo-desc" id="algoSteps"></div>
+  </div>
+
+  <!-- Butterfly Diagram -->
+  <div class="card">
+    <div class="section-title">⟳ BUTTERFLY FLOW DIAGRAM</div>
+    <div class="diagram-wrap">
+      <svg id="butterflySVG" viewBox="0 0 560 320" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="progress-row" id="progressRow">
+      <div class="stage-indicator" data-s="1"></div>
+      <div class="stage-indicator" data-s="2"></div>
+      <div class="stage-indicator" data-s="3"></div>
+    </div>
+  </div>
+
+  <!-- Info -->
+  <div class="card">
+    <div class="section-title">◈ OPERATION INFO</div>
+    <div class="info-bar" style="margin-bottom:8px">
+      <div class="info-badge">Stage <span class="val" id="infoStage">—</span></div>
+      <div class="info-badge">Op <span class="val" id="infoOp">—</span></div>
+      <div class="info-badge">Twiddle <span class="val" id="infoTwiddle">—</span></div>
+    </div>
+    <div id="opDesc">Press ▶ PLAY to begin animation…</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <div class="controls">
+      <button class="ctrl-btn primary" id="playBtn" onclick="togglePlay()">▶ PLAY</button>
+      <button class="ctrl-btn" onclick="stepForward()" id="stepBtn">⏭ STEP</button>
+      <button class="ctrl-btn" onclick="resetAnim()">↺ RESET</button>
+      <div class="speed-wrap">
+        <label>SPEED</label>
+        <input type="range" id="speedRange" min="1" max="10" value="5">
+      </div>
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="card">
+    <div class="section-title">📊 OUTPUT SPECTRA</div>
+    <div style="display:flex;gap:10px;flex-direction:column">
+      <div>
+        <div style="font-size:9px;letter-spacing:2px;color:var(--cyan);font-family:'Orbitron',sans-serif;margin-bottom:4px">MAGNITUDE  |X[k]|</div>
+        <canvas id="spectrumCanvas"></canvas>
+      </div>
+      <div>
+        <div style="font-size:9px;letter-spacing:2px;color:var(--mag);font-family:'Orbitron',sans-serif;margin-bottom:4px">PHASE  ∠X[k]  (radians)</div>
+        <canvas id="phaseCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div class="node-tooltip" id="tooltip"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════ */
+/*  COMPLEX MATH                                              */
+/* ═══════════════════════════════════════════════════════════ */
+class C {
+  constructor(re=0, im=0) { this.re=re; this.im=im; }
+  add(b){ return new C(this.re+b.re, this.im+b.im); }
+  sub(b){ return new C(this.re-b.re, this.im-b.im); }
+  mul(b){ return new C(this.re*b.re-this.im*b.im, this.re*b.im+this.im*b.re); }
+  mag(){ return Math.sqrt(this.re*this.re+this.im*this.im); }
+  fmt(digits=2){
+    const r=+this.re.toFixed(digits), i=+this.im.toFixed(digits);
+    if(Math.abs(i)<0.005) return `${r}`;
+    const sign = i>=0?'+':'-';
+    return `${r}${sign}${Math.abs(i)}j`;
+  }
+  clone(){ return new C(this.re,this.im); }
+}
+
+function W(k,N){ const a=-2*Math.PI*k/N; return new C(Math.cos(a),Math.sin(a)); }
+function Wfmt(k,N){
+  if(k===0) return '1';
+  if(k===N/2) return '−1';
+  if(k===N/4) return '−j';
+  if(k===3*N/4) return '+j';
+  const reduced = gcd(k,N);
+  return `W⁻²π·${k/reduced}/${N/reduced}`;
+}
+function gcd(a,b){ return b===0?a:gcd(b,a%b); }
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  SIGNAL PRESETS                                            */
+/* ═══════════════════════════════════════════════════════════ */
+const N = 8;
+let signal = [];
+let currentSig = 'sine';
+
+const SIGNALS = {
+  sine:    ()=> Array.from({length:N},(_,i)=>Math.sin(2*Math.PI*i/N)),
+  square:  ()=> Array.from({length:N},(_,i)=>(i<N/2?1:-1)),
+  impulse: ()=> Array.from({length:N},(_,i)=>(i===0?1:0)),
+  chirp:   ()=> Array.from({length:N},(_,i)=>Math.sin(Math.PI*i*i/N)),
+  random:  ()=> Array.from({length:N},()=>(Math.random()*2-1)),
+};
+
+function syncInputsToSignal(){
+  for(let i=0;i<N;i++){
+    const inp=document.getElementById('s'+i);
+    if(!inp) continue;
+    inp.value = +signal[i].toFixed(4);
+    inp.classList.remove('user-edited');
+  }
+}
+
+function applyCustomSignal(){
+  const vals=[];
+  for(let i=0;i<N;i++){
+    const v=parseFloat(document.getElementById('s'+i).value);
+    vals.push(isNaN(v)?0:v);
+  }
+  // Deactivate preset buttons
+  document.querySelectorAll('.sig-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#sampleInputRow input').forEach(el=>el.classList.remove('user-edited'));
+  currentSig='custom';
+  signal=vals;
+  // Soft reset: stop animation and reset step counter, but keep signal intact
+  playing=false;
+  clearTimeout(animTimer);
+  document.getElementById('playBtn').textContent='▶ PLAY';
+  currentIdx=0;
+  schedule=buildSchedule(method);
+  document.querySelectorAll('.stage-indicator').forEach(el=>el.className='stage-indicator');
+  document.getElementById('infoStage').textContent='—';
+  document.getElementById('infoOp').textContent='—';
+  document.getElementById('infoTwiddle').textContent='—';
+  document.getElementById('opDesc').textContent='Press ▶ PLAY to begin animation…';
+  renderAlgoSteps(method,0);
+  drawSignal();
+  updateAll();
+}
+
+function clearSamples(){
+  for(let i=0;i<N;i++){
+    const inp=document.getElementById('s'+i);
+    if(inp){ inp.value='0'; inp.classList.remove('user-edited'); }
+  }
+  applyCustomSignal();
+}
+
+function setSig(btn){
+  document.querySelectorAll('.sig-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentSig = btn.dataset.sig;
+  signal = SIGNALS[currentSig]();
+  syncInputsToSignal();
+  drawSignal();
+  resetAnim();
+}
+
+function drawSignal(){
+  const cv = document.getElementById('signalCanvas');
+  const dpr = window.devicePixelRatio||1;
+  const W2 = cv.offsetWidth, H2 = 80;
+  cv.width = W2*dpr; cv.height = H2*dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr,dpr);
+
+  ctx.fillStyle='#020408'; ctx.fillRect(0,0,W2,H2);
+
+  if(!signal || signal.length===0){
+    ctx.fillStyle='#1e3050'; ctx.font='11px Share Tech Mono';
+    ctx.textAlign='center';
+    ctx.fillText('— no signal —', W2/2, H2/2+4);
+    return;
+  }
+
+  const slotW = W2/N;
+  const mid   = H2/2 - 6;   // shift up to leave room for index labels at bottom
+
+  // Zero axis
+  ctx.strokeStyle='#1e3050'; ctx.lineWidth=1;
+  ctx.setLineDash([3,5]);
+  ctx.beginPath(); ctx.moveTo(0,mid); ctx.lineTo(W2,mid); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for(let i=0;i<N;i++){
+    const v   = signal[i];
+    const h   = v * (mid - 6);          // signed: positive goes up
+    const cx  = i*slotW + slotW/2;
+    const hue = 160 + i*25;
+    const col = `hsl(${hue},100%,60%)`;
+    const glow= `hsl(${hue},100%,75%)`;
+    const tipY= mid - h;
+
+    // Stem
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 2;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur  = 7;
+    ctx.beginPath();
+    ctx.moveTo(cx, mid);
+    ctx.lineTo(cx, tipY);
+    ctx.stroke();
+
+    // Dot at tip
+    ctx.beginPath();
+    ctx.arc(cx, tipY, 3.5, 0, Math.PI*2);
+    ctx.fillStyle  = glow;
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Index label below axis
+    ctx.fillStyle   = '#ffffff';
+    ctx.font        = '8px Share Tech Mono';
+    ctx.textAlign   = 'center';
+    ctx.fillText(`x[${i}]`, cx, H2 - 1);
+
+    // Value label near tip
+    if(Math.abs(v) > 0.02){
+      ctx.fillStyle = '#c8e0ff';
+      ctx.font      = '8px Share Tech Mono';
+      ctx.fillText(v.toFixed(2), cx, v >= 0 ? tipY - 5 : tipY + 11);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  BIT REVERSAL                                              */
+/* ═══════════════════════════════════════════════════════════ */
+function bitrev(n, bits=3){
+  let r=0;
+  for(let i=0;i<bits;i++){ r=(r<<1)|(n&1); n>>=1; }
+  return r;
+}
+const BITREV = Array.from({length:N},(_,i)=>bitrev(i));
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  SCHEDULE COMPUTATION                                      */
+/*  Returns list of butterfly ops with full state snapshots  */
+/* ═══════════════════════════════════════════════════════════ */
+function buildSchedule(method){
+  // Start with N complex values
+  let vals = signal.map(v=>new C(v,0));
+
+  // For DIT: bit-reverse input
+  if(method==='DIT'){
+    const tmp = vals.slice();
+    for(let i=0;i<N;i++) vals[i]=tmp[BITREV[i]];
+  }
+
+  const ops = []; // {stage, top, bot, twiddleExp, twiddle, topIn, botIn, topOut, botOut, allVals}
+
+  const STAGES = Math.log2(N); // 3
+
+  if(method==='DIT'){
+    for(let s=1;s<=STAGES;s++){
+      const size = 1<<s;       // butterfly size: 2,4,8
+      const half = size>>1;
+      for(let k=0;k<N;k+=size){
+        for(let j=0;j<half;j++){
+          const top=k+j, bot=k+j+half;
+          const exp=(j*(N/size));
+          const tw = W(exp,N);
+          const a=vals[top].clone(), b=vals[bot].clone();
+          const timed_b = tw.mul(b);
+          vals[top]=a.add(timed_b);
+          vals[bot]=a.sub(timed_b);
+          ops.push({stage:s,top,bot,twiddleExp:exp,twiddle:tw,
+            topIn:a,botIn:b,topOut:vals[top].clone(),botOut:vals[bot].clone(),
+            allVals:vals.map(v=>v.clone())
+          });
+        }
+      }
+    }
+  } else {
+    // DIF: stages from large to small
+    for(let s=1;s<=STAGES;s++){
+      const size = N>>(s-1);  // 8,4,2
+      const half = size>>1;
+      for(let k=0;k<N;k+=size){
+        for(let j=0;j<half;j++){
+          const top=k+j, bot=k+j+half;
+          const exp=(j*(N/size));
+          const tw = W(exp,N);
+          const a=vals[top].clone(), b=vals[bot].clone();
+          vals[top]=a.add(b);
+          vals[bot]=a.sub(b).mul(tw);
+          ops.push({stage:s,top,bot,twiddleExp:exp,twiddle:tw,
+            topIn:a,botIn:b,topOut:vals[top].clone(),botOut:vals[bot].clone(),
+            allVals:vals.map(v=>v.clone())
+          });
+        }
+      }
+    }
+    // DIF: bit-reverse output
+    const tmp = vals.slice();
+    for(let i=0;i<N;i++) vals[BITREV[i]]=tmp[i];
+  }
+
+  return {ops, finalVals:vals};
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  SVG BUTTERFLY DIAGRAM                                     */
+/* ═══════════════════════════════════════════════════════════ */
+const SVG_NS='http://www.w3.org/2000/svg';
+const LANE_X = [70, 210, 350, 490];
+const NODE_Y = Array.from({length:N},(_,i)=>28+i*37);
+
+function el(tag,attrs,parent){
+  const e=document.createElementNS(SVG_NS,tag);
+  Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));
+  if(parent) parent.appendChild(e);
+  return e;
+}
+
+function drawDiagram(schedule, state){
+  const svg = document.getElementById('butterflySVG');
+  svg.innerHTML='';
+
+  const {ops, currentIdx, method} = state;
+  const accentColor = method==='DIT'?'#00e5ff':'#ff2d87';
+
+  // Background gradient defs
+  const defs=el('defs',{},svg);
+  const grad=el('linearGradient',{id:'bg-grad',x1:'0',y1:'0',x2:'1',y2:'0'},defs);
+  el('stop',{offset:'0%','stop-color':'#04060d'},grad);
+  el('stop',{offset:'100%','stop-color':'#080d1a'},grad);
+
+  // Background rect
+  el('rect',{width:'560',height:'320',fill:'url(#bg-grad)'},svg);
+
+  // Stage labels
+  const stageLabels = method==='DIT'
+    ? ['BIT-REV\nINPUT','STAGE 1','STAGE 2','OUTPUT']
+    : ['INPUT','STAGE 1','STAGE 2','BIT-REV\nOUTPUT'];
+
+  // idle = diagram drawn but animation not started yet → show skeleton in white
+  const idle = currentIdx === 0;
+  const skeletonLine  = idle ? '#4a6880' : '#0e1a28';
+  const skeletonAlpha = idle ? 0.85       : 0.5;
+  const skeletonNode  = idle ? '#2a4a60' : '#0e1525';
+  const skeletonStroke= idle ? '#5a7890' : '#2a4060';
+  const headerCol     = idle ? '#8ab0c8' : '#2a4060';
+
+  LANE_X.forEach((x,i)=>{
+    el('text',{x,y:'12','text-anchor':'middle',fill:headerCol,'font-size':'8',
+      'font-family':'Orbitron,sans-serif','letter-spacing':'1'},svg).textContent=stageLabels[i].split('\n')[0];
+    if(stageLabels[i].includes('\n')){
+      el('text',{x,y:'20','text-anchor':'middle',fill:headerCol,'font-size':'8',
+        'font-family':'Orbitron,sans-serif'},svg).textContent=stageLabels[i].split('\n')[1];
+    }
+  });
+
+  // Determine current state of each node
+  // Before any op: nodes are at initial values (bit-reversed input for DIT, natural for DIF)
+  // After op i: use ops[i].allVals
+
+  const getNodeVals = (stageCol) => {
+    // stageCol 0 = initial, 1,2,3 = after that many ops in accumulated stages
+    // We need: what are the values in column stageCol given currentIdx ops done
+    // Column 0 = initial; column s = after all ops with stage<=s are done if currentIdx covers them
+    if(stageCol===0){
+      // initial arrangement — guard against empty signal
+      if(signal.length===0) return Array.from({length:N},()=>new C(0,0));
+      if(method==='DIT'){
+        return Array.from({length:N},(_,i)=>new C(signal[BITREV[i]]??0,0));
+      } else {
+        return Array.from({length:N},(_,i)=>new C(signal[i]??0,0));
+      }
+    }
+    // Find last op that belongs to stageCol and has been completed
+    // ops at stage stageCol cover certain range of indices
+    const stageOps = ops.filter(o=>o.stage===stageCol);
+    if(stageOps.length===0) return null;
+    // Last op of this stage globally
+    const lastIdxOfStage = ops.lastIndexOf(stageOps[stageOps.length-1]);
+    if(currentIdx > lastIdxOfStage){
+      // All ops of this stage done
+      return ops[lastIdxOfStage].allVals;
+    }
+    // Find last done op in this stage
+    const doneOps = stageOps.filter(o=>{const gi=ops.indexOf(o); return gi<currentIdx;});
+    if(doneOps.length>0){
+      const lastDone = ops.indexOf(doneOps[doneOps.length-1]);
+      return ops[lastDone].allVals;
+    }
+    // None done yet in this stage — use previous stage
+    return getNodeVals(stageCol-1);
+  };
+
+  // Draw all butterfly connection lines
+  ops.forEach((op,idx)=>{
+    const s = op.stage;
+    const x1=LANE_X[s-1], x2=LANE_X[s];
+    const yt=NODE_Y[op.top], yb=NODE_Y[op.bot];
+
+    const isDone = idx < currentIdx;
+    const isActive = idx === currentIdx;
+    const isPast = idx < currentIdx;
+
+    let lineColor = isDone ? '#1a4030' : skeletonLine;
+    let lineW = 1;
+    let lineOpacity = isDone ? 0.9 : skeletonAlpha;
+
+    if(isActive){
+      lineColor = '#ffe600';
+      lineW = 2;
+      lineOpacity=1;
+    } else if(isDone){
+      lineColor = method==='DIT'?'#004433':'#330020';
+    }
+
+    // Straight lines (top→top, bot→bot)
+    const ln1=el('line',{x1,y1:yt,x2,y2:yt,stroke:lineColor,'stroke-width':lineW,opacity:lineOpacity},svg);
+    const ln2=el('line',{x1,y1:yb,x2,y2:yb,stroke:lineColor,'stroke-width':lineW,opacity:lineOpacity},svg);
+    // Cross lines (butterfly)
+    const ln3=el('line',{x1,y1:yt,x2,y2:yb,stroke:lineColor,'stroke-width':lineW,opacity:lineOpacity},svg);
+    const ln4=el('line',{x1,y1:yb,x2,y2:yt,stroke:lineColor,'stroke-width':lineW,opacity:lineOpacity},svg);
+
+    if(isActive){
+      // Animated glow lines
+      [ln1,ln2,ln3,ln4].forEach(ln=>{
+        el('animate',{attributeName:'opacity',from:'0.5',to:'1',dur:'0.5s',
+          repeatCount:'indefinite',values:'0.5;1;0.5','calcMode':'linear'},ln);
+      });
+
+      // Twiddle label at midpoint of cross
+      const mx=(x1+x2)/2, my=(yt+yb)/2;
+      const twBg=el('rect',{x:mx-18,y:my-8,width:36,height:14,rx:'3',
+        fill:'#1a1400',stroke:'#ffe600','stroke-width':'1'},svg);
+      el('text',{x:mx,y:my+3,'text-anchor':'middle',fill:'#ffe600',
+        'font-size':'8','font-family':'Share Tech Mono'},svg)
+        .textContent=Wfmt(op.twiddleExp,N);
+
+      // + and − signs
+      const signColor=method==='DIT'?'#00ff88':'#ff2d87';
+      el('text',{x:x2-4,y:yt-3,'text-anchor':'middle',fill:signColor,'font-size':'9'},svg).textContent='+';
+      el('text',{x:x2-4,y:yb+10,'text-anchor':'middle',fill:'#ff7a00','font-size':'9'},svg).textContent='−';
+    }
+
+    if(isDone){
+      // Arrow tips on completed ops
+      const arrowColor=method==='DIT'?'#004433':'#330020';
+    }
+  });
+
+  // Draw nodes for all 4 columns
+  for(let col=0;col<4;col++){
+    const x=LANE_X[col];
+    const nodeVals=getNodeVals(col);
+
+    for(let i=0;i<N;i++){
+      const y=NODE_Y[i];
+      const val = (nodeVals && nodeVals[i] != null) ? nodeVals[i] : new C(0,0);
+      const mag = val.mag();
+      const maxMag = Math.max(...(nodeVals||[new C(1)]).map(v=>v.mag()),0.001);
+
+      // Determine if this node is involved in current op
+      const curOp = currentIdx < ops.length ? ops[currentIdx] : null;
+      const isTopIn = curOp && col===curOp.stage-1 && i===curOp.top;
+      const isBotIn = curOp && col===curOp.stage-1 && i===curOp.bot;
+      const isTopOut = curOp && col===curOp.stage && i===curOp.top;
+      const isBotOut = curOp && col===curOp.stage && i===curOp.bot;
+      const isInvolved = isTopIn||isBotIn||isTopOut||isBotOut;
+
+      // Color based on state
+      let nodeColor = skeletonNode, strokeColor=skeletonStroke, r=7;
+      const brightness = Math.min(1, mag/(maxMag||1));
+
+      if(col===0){
+        strokeColor= idle ? '#5a7890' : '#1a3050';
+        nodeColor  = idle ? '#1a2e40' : '#0a1525';
+      }
+
+      if(isTopIn||isBotIn){ strokeColor='#ffe600'; nodeColor='#1a1400'; r=8; }
+      if(isTopOut||isBotOut){ strokeColor=method==='DIT'?'#00e5ff':'#ff2d87'; nodeColor=method==='DIT'?'#001a20':'#1a0010'; r=8; }
+
+      // Completed node glow
+      if(col<(curOp?curOp.stage:4) && col>0){
+        strokeColor=method==='DIT'?'#004433':'#330020';
+        nodeColor=method==='DIT'?'#001a12':'#12000a';
+      }
+
+      const circle=el('circle',{cx:x,cy:y,r,fill:nodeColor,stroke:strokeColor,'stroke-width':isInvolved?2:1},svg);
+
+      if(isInvolved){
+        el('animate',{attributeName:'r',values:`${r};${r+2};${r}`,dur:'0.6s',repeatCount:'indefinite'},circle);
+      }
+
+      // Value label — hide in idle/skeleton mode to keep diagram clean
+      if(val && !idle){
+        const displayStr = val.fmt(1);
+        const textColor = isTopIn||isBotIn?'#ffe600' : isTopOut||isBotOut?(method==='DIT'?'#00e5ff':'#ff2d87') : col===0?'#3060a0':'#2a4060';
+        if(displayStr.length<8){
+          el('text',{x,y:y+3,'text-anchor':'middle',fill:textColor,'font-size':'7',
+            'font-family':'Share Tech Mono'},svg).textContent=displayStr;
+        }
+      }
+
+      // Index label to left of input column or right of output
+      if(col===0){
+        const origIdx = method==='DIT'? BITREV[i] : i;
+        el('text',{x:x-12,y:y+3,'text-anchor':'middle',fill:'#ffffff','font-size':'8',
+          'font-family':'Share Tech Mono'},svg).textContent=`x${origIdx}`;
+      }
+      if(col===3){
+        const outIdx = method==='DIF'? BITREV[i] : i;
+        el('text',{x:x+14,y:y+3,'text-anchor':'start',fill:'#ffffff','font-size':'8',
+          'font-family':'Share Tech Mono'},svg).textContent=`X${outIdx}`;
+      }
+    }
+  }
+
+  // Stage dividers
+  for(let s=1;s<=2;s++){
+    const mx=(LANE_X[s]+LANE_X[s+1])/2;
+    el('line',{x1:mx,y1:20,x2:mx,y2:300,stroke:idle?'#1e3850':'#0e1830',
+      'stroke-width':1,'stroke-dasharray':'4 4'},svg);
+  }
+
+  // ── Annotation banner ──────────────────────────────────────────────────────
+  const annoY = 306;
+  if(method === 'DIT'){
+    // Bracket under even samples (0,2,4,6) and odd (1,3,5,7)
+    const evenColor = '#00e5ff', oddColor = '#ff7a00';
+
+    // Even group bracket
+    [0,2,4,6].forEach(idx=>{
+      const bx = LANE_X[0] + (idx - 0)*0;   // positions from NODE_Y order
+    });
+
+    // Annotation text
+    const bg1 = el('rect',{x:2,y:annoY-10,width:255,height:13,rx:'3',
+      fill:'rgba(0,229,255,0.08)',stroke:'#00e5ff','stroke-width':'0.5'},svg);
+    el('text',{x:6,y:annoY,'text-anchor':'start',fill:'#00e5ff','font-size':'8',
+      'font-family':'Share Tech Mono'},svg)
+      .textContent='DIT: even-indexed x[0,2,4,6] grouped first → bit-reversed input order';
+
+    const bg2 = el('rect',{x:258,y:annoY-10,width:300,height:13,rx:'3',
+      fill:'rgba(255,122,0,0.08)',stroke:'#ff7a00','stroke-width':'0.5'},svg);
+    el('text',{x:262,y:annoY,'text-anchor':'start',fill:'#ff7a00','font-size':'8',
+      'font-family':'Share Tech Mono'},svg)
+      .textContent='then odd x[1,3,5,7] → butterfly merges even+odd sub-FFTs';
+
+  } else {
+    // DIF annotation
+    const bg1 = el('rect',{x:2,y:annoY-10,width:280,height:13,rx:'3',
+      fill:'rgba(255,45,135,0.08)',stroke:'#ff2d87','stroke-width':'0.5'},svg);
+    el('text',{x:6,y:annoY,'text-anchor':'start',fill:'#ff2d87','font-size':'8',
+      'font-family':'Share Tech Mono'},svg)
+      .textContent='DIF: natural-order input, each stage splits into top+bottom halves';
+
+    const bg2 = el('rect',{x:283,y:annoY-10,width:275,height:13,rx:'3',
+      fill:'rgba(176,96,255,0.08)',stroke:'#b060ff','stroke-width':'0.5'},svg);
+    el('text',{x:287,y:annoY,'text-anchor':'start',fill:'#b060ff','font-size':'8',
+      'font-family':'Share Tech Mono'},svg)
+      .textContent='Output X[k] in bit-reversed order → reorder to get X[0…N-1]';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  SPECTRUM OUTPUT                                           */
+/* ═══════════════════════════════════════════════════════════ */
+function drawSpectrum(vals){
+  const cv=document.getElementById('spectrumCanvas');
+  const dpr=window.devicePixelRatio||1;
+  const W2=cv.offsetWidth, H2=100;
+  cv.width=W2*dpr; cv.height=H2*dpr;
+  const ctx=cv.getContext('2d');
+  ctx.scale(dpr,dpr);
+
+  ctx.fillStyle='#020408'; ctx.fillRect(0,0,W2,H2);
+  if(!vals||vals.length===0) return;
+
+  const mags  = vals.map(v => v.mag());
+  const maxM  = Math.max(...mags, 0.001);
+  const slotW = W2 / N;
+  const base  = H2 - 14;   // y-position of the zero baseline
+
+  // Zero / baseline axis
+  ctx.strokeStyle = '#1e3050'; ctx.lineWidth = 1;
+  ctx.setLineDash([3, 5]);
+  ctx.beginPath(); ctx.moveTo(0, base); ctx.lineTo(W2, base); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for(let i = 0; i < N; i++){
+    const h   = (mags[i] / maxM) * (base - 10);   // always upward
+    const cx  = i * slotW + slotW / 2;
+    const tipY = base - h;
+    const hue  = 200 + i * 20;
+    const col  = `hsl(${hue},100%,60%)`;
+    const glow = `hsl(${hue},100%,78%)`;
+
+    // Stem
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 2;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur  = 7;
+    ctx.beginPath();
+    ctx.moveTo(cx, base);
+    ctx.lineTo(cx, tipY);
+    ctx.stroke();
+
+    // Dot at tip
+    ctx.beginPath();
+    ctx.arc(cx, tipY, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle  = glow;
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Index label below baseline
+    ctx.fillStyle = '#3a5070';
+    ctx.font      = '8px Share Tech Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText(`k=${i}`, cx, H2 - 1);
+
+    // Magnitude label near tip
+    if(mags[i] > 0.01){
+      ctx.fillStyle = '#c8e0ff';
+      ctx.font      = '8px Share Tech Mono';
+      ctx.fillText(mags[i].toFixed(1), cx, tipY - 5);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  PHASE SPECTRUM                                            */
+/* ═══════════════════════════════════════════════════════════ */
+function drawPhase(vals){
+  const cv = document.getElementById('phaseCanvas');
+  if(!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W2  = cv.offsetWidth, H2 = 100;
+  cv.width  = W2 * dpr; cv.height = H2 * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = '#020408'; ctx.fillRect(0, 0, W2, H2);
+  if(!vals || vals.length === 0) return;
+
+  const phases = vals.map(v => Math.atan2(v.im, v.re)); // −π … +π
+  const slotW  = W2 / N;
+  const mid    = H2 / 2 - 6;   // zero-phase baseline (centre)
+
+  // π / −π reference lines
+  ctx.strokeStyle = '#1e3050'; ctx.lineWidth = 1;
+  ctx.setLineDash([3, 5]);
+  [mid, mid - (mid - 10), mid + (mid - 10)].forEach(y => {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W2, y); ctx.stroke();
+  });
+  // Zero axis (solid, slightly brighter)
+  ctx.setLineDash([]);
+  ctx.strokeStyle = '#2a4060'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W2, mid); ctx.stroke();
+
+  // ±π labels on y-axis
+  ctx.fillStyle = '#2a4060'; ctx.font = '7px Share Tech Mono'; ctx.textAlign = 'left';
+  ctx.fillText('+π', 2, mid - (mid - 14));
+  ctx.fillText('−π', 2, mid + (mid - 6));
+  ctx.fillText(' 0', 2, mid + 3);
+
+  const mags = vals.map(v => v.mag());
+
+  for(let i = 0; i < N; i++){
+    const ph  = phases[i];                       // −π … +π
+    const mag = mags[i];
+    // height proportional to phase, scaled so ±π maps to ±(mid−10)
+    const h   = (ph / Math.PI) * (mid - 10);    // signed
+    const cx  = i * slotW + slotW / 2;
+    const tipY = mid - h;
+
+    const hue  = 300 + i * 18;                  // purple–pink range to differ from magnitude
+    const col  = `hsl(${hue},100%,60%)`;
+    const glow = `hsl(${hue},100%,78%)`;
+
+    // Only draw if magnitude is meaningful (suppress near-zero noise)
+    if(mag < 0.01){
+      // Draw a small suppressed dot on baseline
+      ctx.beginPath();
+      ctx.arc(cx, mid, 2, 0, Math.PI*2);
+      ctx.fillStyle = '#1e3050'; ctx.fill();
+    } else {
+      // Stem
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 2;
+      ctx.shadowColor = glow;
+      ctx.shadowBlur  = 7;
+      ctx.beginPath();
+      ctx.moveTo(cx, mid);
+      ctx.lineTo(cx, tipY);
+      ctx.stroke();
+
+      // Dot at tip
+      ctx.beginPath();
+      ctx.arc(cx, tipY, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle  = glow;
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Phase value label
+      ctx.fillStyle = '#ffffff';
+      ctx.font      = '8px Share Tech Mono';
+      ctx.textAlign = 'center';
+      const labelY  = ph >= 0 ? tipY - 5 : tipY + 11;
+      ctx.fillText((ph / Math.PI).toFixed(2) + 'π', cx, labelY);
+    }
+
+    // k index label
+    ctx.fillStyle = '#ffffff';
+    ctx.font      = '8px Share Tech Mono';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 0;
+    ctx.fillText(`k=${i}`, cx, H2 - 1);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  ALGORITHM DESCRIPTION PANEL                               */
+/* ═══════════════════════════════════════════════════════════ */
+function renderAlgoSteps(method, currentStage){
+  const container=document.getElementById('algoSteps');
+  document.getElementById('algoTitle').textContent=`✦ ${method} ALGORITHM STEPS`;
+
+  const steps = method==='DIT'
+    ? [
+        {num:'01', text:'Bit-reverse permute input x[n]→ x[bitrev(n)]'},
+        {num:'02', text:'Stage 1: N/2 butterflies, size-2 groups, W_2^k'},
+        {num:'03', text:'Stage 2: N/4 butterflies, size-4 groups, W_4^k'},
+        {num:'04', text:'Stage 3: N/8 butterflies, size-8 groups, W_8^k'},
+      ]
+    : [
+        {num:'01', text:'Input in natural order x[0]…x[N-1]'},
+        {num:'02', text:'Stage 1: size-N groups, W_N^k applied after difference'},
+        {num:'03', text:'Stage 2: size-N/2 groups, W_{N/2}^k applied after diff'},
+        {num:'04', text:'Bit-reverse permute output to get X[k]'},
+      ];
+
+  container.innerHTML='';
+  steps.forEach((step,i)=>{
+    const cls = i===0?'done-step' : i<=currentStage?'done-step' : i===currentStage?'active-step':'';
+    const div=document.createElement('div');
+    div.className=`algo-step ${cls}`;
+    div.innerHTML=`<div class="step-num">${step.num}</div><div style="font-size:10px;line-height:1.4">${step.text}</div>`;
+    container.appendChild(div);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  ANIMATION STATE MACHINE                                   */
+/* ═══════════════════════════════════════════════════════════ */
+let method = 'DIT';
+let schedule = {ops:[], finalVals:[]};
+let currentIdx = 0;
+let playing = false;
+let animTimer = null;
+
+function getSpeed(){
+  const s=+document.getElementById('speedRange').value;
+  return Math.round(1200/s);
+}
+
+function clearCanvas(id, label=''){
+  const cv=document.getElementById(id);
+  const dpr=window.devicePixelRatio||1;
+  cv.width=cv.offsetWidth*dpr; cv.height=cv.offsetHeight*dpr;
+  const ctx=cv.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const W2=cv.offsetWidth, H2=cv.offsetHeight;
+  ctx.fillStyle='#020408'; ctx.fillRect(0,0,W2,H2);
+  ctx.setLineDash([4,6]);
+  ctx.strokeStyle='#1e3050'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,H2/2); ctx.lineTo(W2,H2/2); ctx.stroke();
+  ctx.setLineDash([]);
+  if(label){
+    ctx.fillStyle='#1e3050';
+    ctx.font='11px Share Tech Mono';
+    ctx.textAlign='center';
+    ctx.fillText(label, W2/2, H2/2+4);
+  }
+}
+
+function resetAnim(){
+  playing=false;
+  clearTimeout(animTimer);
+  document.getElementById('playBtn').textContent='▶ PLAY';
+  signal = [];
+  schedule = {ops:[], finalVals:[]};
+  currentIdx = 0;
+
+  // Clear both canvases with placeholder text
+  clearCanvas('signalCanvas','— cleared —');
+  clearCanvas('spectrumCanvas','— press ▶ PLAY to compute —');
+  clearCanvas('phaseCanvas','— press ▶ PLAY to compute —');
+
+  // Reset info bar
+  document.getElementById('infoStage').textContent='—';
+  document.getElementById('infoOp').textContent='—';
+  document.getElementById('infoTwiddle').textContent='—';
+  document.getElementById('opDesc').textContent='Press ▶ PLAY to begin animation…';
+
+  // Rebuild skeleton diagram from zeros so structure is always visible
+  const skeletonSignal = Array(N).fill(0);
+  const savedSignal = signal;
+  signal = skeletonSignal;
+  schedule = buildSchedule(method);
+  signal = savedSignal;   // restore (may be [] if truly reset)
+  currentIdx = 0;
+  drawDiagram({ops: schedule.ops, currentIdx: 0, method}, {ops: schedule.ops, currentIdx: 0, method});
+
+  // Clear progress indicators
+  document.querySelectorAll('.stage-indicator').forEach(el=>{
+    el.className='stage-indicator';
+  });
+
+  // Reset schedule to empty since we have no real signal
+  schedule = {ops:[], finalVals:[]};
+
+  renderAlgoSteps(method, 0);
+}
+
+function updateAll(){
+  const {ops, finalVals} = schedule;
+  const state = {ops, currentIdx, method};
+
+  drawDiagram(state, state);
+
+  // Info bar
+  if(currentIdx < ops.length){
+    const op=ops[currentIdx];
+    document.getElementById('infoStage').textContent=op.stage;
+    document.getElementById('infoOp').textContent=`${(ops.slice(0,currentIdx).filter(o=>o.stage===op.stage).length)+1} / ${ops.filter(o=>o.stage===op.stage).length}`;
+    document.getElementById('infoTwiddle').textContent=Wfmt(op.twiddleExp,N);
+    const butterFmt = method==='DIT'
+      ? `A + W·B = ${op.topIn.fmt(2)} + ${Wfmt(op.twiddleExp,N)}·(${op.botIn.fmt(2)}) = ${op.topOut.fmt(2)}`
+      : `A + B = ${op.topIn.fmt(2)} + ${op.botIn.fmt(2)} = ${op.topOut.fmt(2)}`;
+    document.getElementById('opDesc').innerHTML=`<span style="color:var(--text2)">Butterfly:</span> <span style="color:var(--cyan)">[${op.top}]←${op.topOut.fmt(1)}</span> &nbsp; <span style="color:var(--orange)">[${op.bot}]←${op.botOut.fmt(1)}</span>`;
+
+    renderAlgoSteps(method, op.stage);
+  } else {
+    document.getElementById('infoStage').textContent='✓';
+    document.getElementById('infoOp').textContent='Done';
+    document.getElementById('infoTwiddle').textContent='—';
+    document.getElementById('opDesc').innerHTML=`<span style="color:var(--green)">✓ FFT complete! Spectrum shown below.</span>`;
+    renderAlgoSteps(method, 4);
+  }
+
+  // Progress indicators
+  const curStage = currentIdx<ops.length ? ops[currentIdx].stage : 4;
+  document.querySelectorAll('.stage-indicator').forEach(el=>{
+    const s=+el.dataset.s;
+    el.className='stage-indicator';
+    if(s<curStage) el.classList.add('done');
+    else if(s===curStage && currentIdx<ops.length) el.classList.add('active');
+  });
+
+  // Spectrum: show partial if some ops done
+  if(currentIdx>=ops.length){
+    drawSpectrum(finalVals);
+    drawPhase(finalVals);
+  } else if(currentIdx>0){
+    // Show current partial values
+    drawSpectrum(ops[currentIdx-1].allVals);
+    drawPhase(ops[currentIdx-1].allVals);
+  } else {
+    drawSpectrum(signal.map(v=>new C(v,0)));
+    drawPhase(signal.map(v=>new C(v,0)));
+  }
+}
+
+function stepForward(){
+  if(signal.length===0){
+    if(currentSig !== 'custom') signal = SIGNALS[currentSig]();
+    schedule = buildSchedule(method);
+    currentIdx = 0;
+    drawSignal();
+    syncInputsToSignal();
+  }
+  if(currentIdx < schedule.ops.length){
+    currentIdx++;
+    updateAll();
+  } else {
+    stopAnim();
+  }
+}
+
+function togglePlay(){
+  if(playing){
+    stopAnim();
+  } else {
+    startAnim();
+  }
+}
+
+function startAnim(){
+  // Reload signal if reset was hit (signal cleared) or run finished
+  if(signal.length===0 || currentIdx >= schedule.ops.length){
+    if(currentSig !== 'custom') signal = SIGNALS[currentSig]();
+    schedule = buildSchedule(method);
+    currentIdx = 0;
+    drawSignal();
+    syncInputsToSignal();
+  }
+  playing=true;
+  document.getElementById('playBtn').textContent='⏸ PAUSE';
+  tick();
+}
+
+function stopAnim(){
+  playing=false;
+  clearTimeout(animTimer);
+  document.getElementById('playBtn').textContent='▶ PLAY';
+}
+
+function tick(){
+  if(!playing) return;
+  if(currentIdx >= schedule.ops.length){ stopAnim(); return; }
+  currentIdx++;
+  updateAll();
+  animTimer=setTimeout(tick, getSpeed());
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  METHOD SWITCH                                             */
+/* ═══════════════════════════════════════════════════════════ */
+function switchMethod(m){
+  method=m;
+  document.querySelectorAll('.method-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.m===m);
+  });
+  document.getElementById('methodDesc').textContent =
+    m==='DIT'?'Decimation in Time':'Decimation in Frequency';
+
+  // Stop any running animation
+  playing=false;
+  clearTimeout(animTimer);
+  document.getElementById('playBtn').textContent='▶ PLAY';
+  currentIdx=0;
+
+  // Rebuild schedule with new method (use existing signal, or zeros if none)
+  const sigToUse = (signal && signal.length===N) ? signal : Array(N).fill(0);
+  const savedSignal = signal;
+  signal = sigToUse;
+  schedule = buildSchedule(method);
+  signal = savedSignal;
+
+  // Always redraw diagram skeleton immediately with new method
+  drawDiagram({ops: schedule.ops, currentIdx: 0, method}, {ops: schedule.ops, currentIdx: 0, method});
+
+  // Reset schedule if there was no real signal
+  if(!savedSignal || savedSignal.length!==N){
+    schedule = {ops:[], finalVals:[]};
+  }
+
+  document.querySelectorAll('.stage-indicator').forEach(el=>el.className='stage-indicator');
+  document.getElementById('infoStage').textContent='—';
+  document.getElementById('infoOp').textContent='—';
+  document.getElementById('infoTwiddle').textContent='—';
+  document.getElementById('opDesc').textContent='Press ▶ PLAY to begin animation…';
+  renderAlgoSteps(method, 0);
+
+  // Redraw signal and spectra if signal exists
+  if(savedSignal && savedSignal.length===N){
+    signal=savedSignal;
+    schedule=buildSchedule(method);
+    drawSignal();
+    clearCanvas('spectrumCanvas','— press ▶ PLAY to compute —');
+    clearCanvas('phaseCanvas','— press ▶ PLAY to compute —');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  RESIZE HANDLER                                            */
+/* ═══════════════════════════════════════════════════════════ */
+let resizeTimer;
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer=setTimeout(()=>{ drawSignal(); updateAll(); },150);
+});
+
+/* ═══════════════════════════════════════════════════════════ */
+/*  INIT                                                      */
+/* ═══════════════════════════════════════════════════════════ */
+signal = SIGNALS['sine']();
+schedule = buildSchedule(method);
+drawSignal();
+syncInputsToSignal();
+renderAlgoSteps(method, 0);
+updateAll();
+
+// Mark fields dirty when user types; Enter or blur triggers apply
+for(let i=0;i<N;i++){
+  const inp=document.getElementById('s'+i);
+  if(!inp) continue;
+  inp.addEventListener('input',()=>inp.classList.add('user-edited'));
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){ e.preventDefault(); applyCustomSignal(); }
+    // Tab from last box also applies
+    if(e.key==='Tab' && i===N-1){ setTimeout(applyCustomSignal,50); }
+  });
+  inp.addEventListener('blur', ()=>{
+    // Auto-apply only when focus moves completely outside the input row
+    // Use a short timeout so the next element's focus fires first
+    setTimeout(()=>{
+      const focused = document.activeElement;
+      const row = document.getElementById('sampleInputRow');
+      if(row && !row.contains(focused)){
+        const anyEdited=[...row.querySelectorAll('input')].some(el=>el.classList.contains('user-edited'));
+        if(anyEdited) applyCustomSignal();
+      }
+    }, 80);
+  });
+}
+</script>
+</body>
+</html>
